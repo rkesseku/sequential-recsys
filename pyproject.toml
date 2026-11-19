@@ -1,0 +1,56 @@
+[project]
+name = "sequential-recsys"
+version = "0.1.0"
+description = "Sequential recommendation on MovieLens-1M: popularity, item-kNN, EASE and SASRec retrievers plus a LightGBM re-ranker, evaluated with full-catalogue ranking and bootstrap CIs."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Reagan Kesseku" }]
+license = { text = "MIT" }
+keywords = ["recommender-systems", "sasrec", "ease", "learning-to-rank", "movielens", "evaluation"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "torch>=2.1",
+    "lightgbm>=4.0",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.scripts]
+seqrec = "seqrec.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/rkesseku/sequential-recsys"
+Repository = "https://github.com/rkesseku/sequential-recsys"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["seqrec*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning", "ignore::UserWarning"]

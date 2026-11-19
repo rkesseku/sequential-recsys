@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+build/
+dist/
+.ipynb_checkpoints/
+.quarto/
+# The MovieLens licence forbids redistribution: download the data yourself (see README)
+data/raw/
+*.zip
+*.pt
+/results/
