@@ -133,7 +133,7 @@ SASRec checkpoints are cached in `results/cache/` (gitignored), so `run-all` reu
 Windows conda environments, numpy (MKL) and PyTorch load two OpenMP runtimes. If you see
 `OMP: Error #15`, set `KMP_DUPLICATE_LIB_OK=TRUE` for the session. CI on Linux does not need this.
 
-The 5-page project brief is at [`docs/brief/brief.pdf`](docs/brief/brief.pdf).
+The project brief is at [`docs/brief/brief.pdf`](docs/brief/brief.pdf).
 
 ## Layout
 

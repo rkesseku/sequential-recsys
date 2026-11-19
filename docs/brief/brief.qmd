@@ -1,4 +1,6 @@
 ---
+bibliography: references.bib
+bibliographystyle: apa
 linkcolor: "#1f4e9e"
 format:
   typst:
@@ -12,6 +14,8 @@ format:
 
 ```{=typst}
 #set text(hyphenate: false)
+#set bibliography(title: "References")
+#show bibliography: set par(justify: false)
 // Three-rule tables (top, below header, bottom) and bold "Figure N" / "Table N" labels
 #set table.hline(stroke: 0.6pt)
 #show table: it => box(stroke: (top: 1pt, bottom: 1pt), it)
@@ -26,6 +30,7 @@ format:
 #let glance(body) = block(fill: rgb("#eef3fb"), stroke: (left: 3pt + rgb("#1f4e9e")), inset: 10pt, radius: 2pt, width: 100%, body)
 // Header: red title, subtitle, author, repository link
 #align(center)[
+  #set par(justify: false)
   #text(size: 17pt, weight: "bold", fill: rgb("#b91c1c"))[Sequential Movie Recommender]
   #v(0.5em)
   #text(size: 12pt, weight: "bold")[Recommending the next film from a viewing history: retrieval, a transformer and a learned re-ranker, measured against the whole catalogue]
@@ -33,6 +38,8 @@ format:
   #text(size: 11pt)[Reagan Kesseku, Ph.D.]
   #linebreak()
   #text(size: 10pt)[#link("https://github.com/rkesseku/sequential-recsys")[github.com/rkesseku/sequential-recsys]]
+  #v(0.45em)
+  #text(size: 9.5pt)[#emph[Keywords:] sequential recommendation; self-attention; learning to rank; full-catalogue evaluation; MovieLens]
 ]
 #v(0.5em)
 ```
@@ -58,7 +65,7 @@ Two design questions dominate real recommender work. First, *does the order of a
 
 Published recommender numbers are often hard to trust, for three common reasons:
 
-- the true item is ranked against only 100 randomly sampled films rather than the whole catalogue, which inflates scores and can even change which model looks best;
+- the true item is ranked against only 100 randomly sampled films rather than the whole catalogue, which inflates scores and can even change which model looks best [@krichene2020];
 - interactions are shuffled, so a model can learn from a user's future;
 - hyperparameters are tuned on the test set.
 
@@ -74,13 +81,13 @@ This project avoids all three. Each user's interactions are kept in time order, 
 
 ## Data
 
-MovieLens-1M (Harper & Konstan, 2015) contains 1,000,209 ratings by 6,040 users on 3,706 films, with timestamps and genres. Each rating is treated as "this user watched this film". The average user has about 164 training interactions, so there is real sequential signal to exploit. The GroupLens licence forbids redistribution, so the repository contains code only and the README explains how to obtain the data.
+MovieLens-1M [@harper2015] contains 1,000,209 ratings by 6,040 users on 3,706 films, with timestamps and genres. Each rating is treated as "this user watched this film". The average user has about 164 training interactions, so there is real sequential signal to exploit. The GroupLens licence forbids redistribution, so the repository contains code only and the README explains how to obtain the data.
 
 ## How it works, end to end
 
 1. *Split* (`data.py`). Interactions are sorted by timestamp per user, with ties kept in file order. The last item is the test target, the second-to-last is the validation target, and the rest is training data. At test time, models read the training history plus the validation item.
-2. *Baselines* (`models.py`). *Popularity* recommends the most-watched films. *ItemKNN* scores films by cosine similarity to what the user has seen, with the neighbourhood size tuned on validation (best k = 50). *EASE* (Steck, 2019) learns a full item-to-item weight matrix in closed form with one regularisation parameter, tuned on validation (best λ = 250).
-3. *Sequence model* (`sasrec.py`). A SASRec-style transformer (Kang & McAuley, 2018) reads the last 100 films in order and predicts the next one at every position. It has two self-attention blocks with 64-dimensional embeddings shared between input and output. It is trained with full softmax cross-entropy over the catalogue and early-stopped on validation NDCG\@10, with seeds 0, 1 and 2.
+2. *Baselines* (`models.py`). *Popularity* recommends the most-watched films. *ItemKNN* scores films by cosine similarity to what the user has seen, with the neighbourhood size tuned on validation (best k = 50). *EASE* [@steck2019] learns a full item-to-item weight matrix in closed form with one regularisation parameter, tuned on validation (best λ = 250).
+3. *Sequence model* (`sasrec.py`). A SASRec-style transformer [@kang2018] reads the last 100 films in order and predicts the next one at every position. It has two self-attention blocks with 64-dimensional embeddings shared between input and output. It is trained with full softmax cross-entropy over the catalogue and early-stopped on validation NDCG\@10, with seeds 0, 1 and 2.
 4. *Re-ranker* (`rerank.py`). For each user, the top-100 lists from EASE and SASRec are interleaved and de-duplicated into 100 candidates. Ten features describe each candidate: the three models' scores and ranks, overall and recent popularity, the length of the user's history, and how well the film's genres match the user's genre profile. A LightGBM LambdaRank model is trained on the users whose *validation* film appears among their candidates (3,616 users, with 401 more for early stopping). It is then applied to the test candidates.
 5. *Evaluation* (`metrics.py`, `pipeline.py`). The target's rank among all unseen films gives HR\@10 (is it in the top 10?) and NDCG\@10 (rewarding higher positions), plus Recall\@K curves. *Coverage\@10* is the share of the catalogue that appears in anyone's top 10. *Head share\@10* is the share of top-10 slots given to the 10% most-watched films. Intervals come from 1,000 bootstrap resamples of users, and differences between models come from a paired bootstrap.
 
@@ -123,7 +130,7 @@ Three findings stand out.
 
 # What this demonstrates
 
-- *Recommender systems end to end:* candidate retrieval with classical and neural models, feature engineering, and learning-to-rank with LambdaRank, the architecture used by large consumer platforms.
+- *Recommender systems end to end:* candidate retrieval with classical and neural models, feature engineering, and learning-to-rank with LambdaRank [@burges2010], the architecture used by large consumer platforms.
 - *Evaluation discipline:* chronological splits, full-catalogue ranking, validation-only tuning, bootstrap intervals, paired tests and multiple seeds. Beyond accuracy, it reports coverage and popularity concentration, the metrics product teams care about.
 - *Deep learning from first principles:* a transformer recommender written directly in PyTorch, with early stopping and checkpoint caching, trained on CPU.
 - *Engineering:* a small package with one model interface, a CLI that regenerates every reported number, 19 tests on synthetic data and CI on three Python versions.
@@ -145,4 +152,4 @@ ruff check src tests && pytest          # synthetic data, no downloads
 seqrec run-all --threads 12 --verbose   # writes docs/results/metrics.json + figures
 ```
 
-SASRec checkpoints are cached per seed in `results/cache/`, so re-running the evaluation takes about two minutes on CPU. *References:* Harper & Konstan (2015), ACM TiiS; Kang & McAuley (2018), ICDM; Steck (2019), WWW.
+SASRec checkpoints are cached per seed in `results/cache/`, so re-running the evaluation takes about two minutes on CPU.
