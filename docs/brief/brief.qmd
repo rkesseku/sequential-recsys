@@ -1,5 +1,5 @@
 ---
-title: "sequential-recsys"
+title: "Sequential Movie Recommender"
 subtitle: "Recommending the next film from a viewing history: retrieval, a transformer and a learned re-ranker, measured against the whole catalogue"
 author:
   - name: "Reagan Kesseku · Project brief · github.com/rkesseku/sequential-recsys"
