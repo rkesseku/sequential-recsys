@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> None:
         s = sub.add_parser(name)
         s.add_argument("--data", default="data/raw/ml-1m")
         s.add_argument("--cache", default="results/cache")
-        s.add_argument("--epochs", type=int, default=40)
+        s.add_argument("--epochs", type=int, default=120)
         s.add_argument("--patience", type=int, default=3)
         s.add_argument("--max-len", type=int, default=100)
         s.add_argument("--dim", type=int, default=64)

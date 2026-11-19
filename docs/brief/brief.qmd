@@ -15,6 +15,7 @@ format:
 ```{=typst}
 #set text(hyphenate: false)
 #set bibliography(title: "References")
+#show cite: set text(fill: rgb("#1f4e9e"))
 #show bibliography: set par(justify: false)
 // Three-rule tables (top, below header, bottom) and bold "Figure N" / "Table N" labels
 #set table.hline(stroke: 0.6pt)
@@ -49,7 +50,7 @@ format:
 *At a glance* \
 *Problem:* Given what someone has watched so far, which film will they pick next? Recommenders are often evaluated with shortcuts that inflate accuracy, so it is hard to tell which modelling choices really matter. \
 *What I built:* A reproducible pipeline on MovieLens-1M that compares four retrievers (popularity, item-kNN, EASE and a SASRec-style transformer) under a strict chronological, full-catalogue protocol, then adds a LightGBM LambdaRank re-ranker over the merged top-100 candidates, the retrieval-then-ranking design used in production systems. \
-*Headline result:* On 6,040 held-out next films, NDCG\@10 rose from *0.053 (EASE) to 0.165 (SASRec)* and *0.172 with the re-ranker* (re-ranker minus SASRec +0.0066, 95% CI [+0.0027, +0.0104]). SASRec also spread recommendations far wider: it covered 65% of the catalogue versus 38% for EASE. \
+*Headline result:* On 6,040 held-out next films, NDCG\@10 rose from *0.053 (EASE) to 0.167 (SASRec)* and *0.175 with the re-ranker* (re-ranker minus SASRec +0.0085, 95% CI [+0.0047, +0.0123]) with SASRec trained to convergence. SASRec also spread recommendations far wider: it covered 65% of the catalogue versus 38% for EASE. \
 *Stack:* Python, PyTorch, NumPy/SciPy, LightGBM, pandas, matplotlib, pytest, GitHub Actions. \
 *Repo:* #link("https://github.com/rkesseku/sequential-recsys")[github.com/rkesseku/sequential-recsys]
 ]
@@ -87,8 +88,8 @@ MovieLens-1M [@harper2015] contains 1,000,209 ratings by 6,040 users on 3,706 fi
 
 1. *Split* (`data.py`). Interactions are sorted by timestamp per user, with ties kept in file order. The last item is the test target, the second-to-last is the validation target, and the rest is training data. At test time, models read the training history plus the validation item.
 2. *Baselines* (`models.py`). *Popularity* recommends the most-watched films. *ItemKNN* scores films by cosine similarity to what the user has seen, with the neighbourhood size tuned on validation (best k = 50). *EASE* [@steck2019] learns a full item-to-item weight matrix in closed form with one regularisation parameter, tuned on validation (best λ = 250).
-3. *Sequence model* (`sasrec.py`). A SASRec-style transformer [@kang2018] reads the last 100 films in order and predicts the next one at every position. It has two self-attention blocks with 64-dimensional embeddings shared between input and output. It is trained with full softmax cross-entropy over the catalogue and early-stopped on validation NDCG\@10, with seeds 0, 1 and 2.
-4. *Re-ranker* (`rerank.py`). For each user, the top-100 lists from EASE and SASRec are interleaved and de-duplicated into 100 candidates. Ten features describe each candidate: the three models' scores and ranks, overall and recent popularity, the length of the user's history, and how well the film's genres match the user's genre profile. A LightGBM LambdaRank model is trained on the users whose *validation* film appears among their candidates (3,616 users, with 401 more for early stopping). It is then applied to the test candidates.
+3. *Sequence model* (`sasrec.py`). A SASRec-style transformer [@kang2018] reads the last 100 films in order and predicts the next one at every position. It has two self-attention blocks with 64-dimensional embeddings shared between input and output. It is trained with full softmax cross-entropy over the catalogue and early-stopped on validation NDCG\@10 (at most 120 epochs, patience 3 checks of every 2 epochs), with seeds 0, 1 and 2. Every seed stopped early, after 56, 48 and 38 epochs.
+4. *Re-ranker* (`rerank.py`). For each user, the top-100 lists from EASE and SASRec are interleaved and de-duplicated into 100 candidates. Ten features describe each candidate: the three models' scores and ranks, overall and recent popularity, the length of the user's history, and how well the film's genres match the user's genre profile. A LightGBM LambdaRank model is trained on the users whose *validation* film appears among their candidates (3,631 users, with 403 more for early stopping). It is then applied to the test candidates.
 5. *Evaluation* (`metrics.py`, `pipeline.py`). The target's rank among all unseen films gives HR\@10 (is it in the top 10?) and NDCG\@10 (rewarding higher positions), plus Recall\@K curves. *Coverage\@10* is the share of the catalogue that appears in anyone's top 10. *Head share\@10* is the share of top-10 slots given to the 10% most-watched films. Intervals come from 1,000 bootstrap resamples of users, and differences between models come from a paired bootstrap.
 
 
@@ -101,29 +102,29 @@ MovieLens-1M [@harper2015] contains 1,000,209 ratings by 6,040 users on 3,706 fi
 | Popularity | 0.018 [0.016, 0.021] | 0.037 [0.033, 0.042] | 0.139 | 5.4% | 100% |
 | ItemKNN (k = 50) | 0.040 [0.036, 0.044] | 0.080 [0.074, 0.088] | 0.252 | 37.7% | 82.3% |
 | EASE (λ = 250) | 0.053 [0.049, 0.057] | 0.108 [0.101, 0.116] | 0.320 | 38.1% | 81.5% |
-| SASRec (seed 0) | 0.165 [0.158, 0.173] | 0.289 [0.278, 0.301] | 0.553 | **64.8%** | 45.9% |
-| Re-ranker | **0.172** [0.164, 0.180] | **0.297** [0.285, 0.309] | **0.567** | 60.0% | 52.5% |
+| SASRec (seed 0) | 0.167 [0.159, 0.174] | 0.291 [0.280, 0.303] | 0.558 | **64.8%** | **46.8%** |
+| Re-ranker | **0.175** [0.168, 0.183] | **0.305** [0.293, 0.317] | **0.569** | 60.5% | 53.7% |
 
-: Test results for 6,040 users, each ranked against the full catalogue with seen films removed. The re-ranker can only reorder its 100 candidates; the true film was among them for 64.2% of users. Bold marks the best value in each accuracy column and the widest catalogue coverage. {#tbl-results}
+: Test results for 6,040 users, each ranked against the full catalogue with seen films removed. The re-ranker can only reorder its 100 candidates; the true film was among them for 64.5% of users. Bold marks the best value in each column: highest for accuracy and coverage, lowest for head share (less popularity concentration). {#tbl-results}
 
 ![Left: NDCG\@10; right: HR\@10, with 95% bootstrap intervals over users.](figures/accuracy.png){#fig-acc width=88%}
 
 Three findings stand out.
 
-*Order matters, a lot.* The transformer triples NDCG\@10 over EASE (paired difference +0.112, 95% CI [+0.105, +0.120]). The two non-sequential models differ by only +0.013 between themselves. On this data, what someone watched most recently is far more predictive than their overall taste profile. Across three seeds, SASRec's test NDCG\@10 was 0.1656 ± 0.0016 (mean ± SD), so the gap is not a lucky initialisation.
+*Order matters, a lot.* The transformer triples NDCG\@10 over EASE (paired difference +0.114, 95% CI [+0.106, +0.122]). The two non-sequential models differ by only +0.013 between themselves. On this data, what someone watched most recently is far more predictive than their overall taste profile. Across three seeds, SASRec's test NDCG\@10 was 0.1662 ± 0.0015 (mean ± SD), so the gap is not a lucky initialisation.
 
-*The second-stage ranker earns a modest, measurable gain.* Re-ranking lifts NDCG\@10 by +0.0066 (95% CI [+0.0027, +0.0104]), about 4% relative and roughly four times SASRec's seed-to-seed spread. The ranker leans mainly on SASRec's rank and score (70% of the trees' total gain), using EASE, recency and genre affinity as corrections. Its ceiling is its candidate pool: the merged list contained the test film for 64.2% of users, slightly fewer than SASRec's own top 100 (66.4%), because half the slots go to EASE.
+*The second-stage ranker earns a modest, measurable gain.* Re-ranking lifts NDCG\@10 by +0.0085 (95% CI [+0.0047, +0.0123]), about 5% relative and roughly five times SASRec's seed-to-seed spread. An earlier run capped SASRec at 40 epochs, which cut off seed 0 while it was still improving; training to convergence raised SASRec (0.1653 to 0.1666) and the re-ranker gain grew rather than shrank (from +0.0066). The ranker leans mainly on SASRec's rank and score (67% of the trees' total gain), using EASE, recency and genre affinity as corrections. Its ceiling is its candidate pool: the merged list contained the test film for 64.5% of users, slightly fewer than SASRec's own top 100 (66.8%), because half the slots go to EASE.
 
 {{< pagebreak >}}
 
 ![Share of users whose next film appears in the top K. The transformer dominates at every K; the re-ranker improves the top of the list but is capped by candidate recall at K = 100.](figures/recall_curve.png){#fig-recall width=62%}
 
-*Higher accuracy did not mean more popularity bias.* It is often assumed that accurate recommenders simply push blockbusters. Here the opposite held. EASE and ItemKNN gave over 80% of their top-10 slots to the most-watched tenth of the catalogue, while SASRec gave 46% and reached 65% of all films. The re-ranker moved back slightly towards popular films (head share 52.5%, coverage 60%), a trade-off a product team would want to see before shipping.
+*Higher accuracy did not mean more popularity bias.* It is often assumed that accurate recommenders simply push blockbusters. Here the opposite held. EASE and ItemKNN gave over 80% of their top-10 slots to the most-watched tenth of the catalogue, while SASRec gave 47% and reached 65% of all films. The re-ranker moved back slightly towards popular films (head share 53.7%, coverage 60.5%), a trade-off a product team would want to see before shipping.
 
 ::: {layout-ncol=2}
 ![Accuracy against popularity concentration; labels show catalogue coverage.](figures/accuracy_vs_popularity.png){#fig-pop}
 
-![Validation NDCG\@10 during SASRec training, three seeds; dashed line is EASE. Two seeds hit the 40-epoch cap while still improving slightly.](figures/sasrec_training.png){#fig-train}
+![Validation NDCG\@10 during SASRec training, three seeds; dashed line is EASE. All three seeds early-stopped well before the 120-epoch cap.](figures/sasrec_training.png){#fig-train}
 :::
 
 {{< pagebreak >}}
@@ -133,12 +134,12 @@ Three findings stand out.
 - *Recommender systems end to end:* candidate retrieval with classical and neural models, feature engineering, and learning-to-rank with LambdaRank [@burges2010], the architecture used by large consumer platforms.
 - *Evaluation discipline:* chronological splits, full-catalogue ranking, validation-only tuning, bootstrap intervals, paired tests and multiple seeds. Beyond accuracy, it reports coverage and popularity concentration, the metrics product teams care about.
 - *Deep learning from first principles:* a transformer recommender written directly in PyTorch, with early stopping and checkpoint caching, trained on CPU.
-- *Engineering:* a small package with one model interface, a CLI that regenerates every reported number, 19 tests on synthetic data and CI on three Python versions.
+- *Engineering:* a small package with one model interface, a CLI that regenerates every reported number, 20 tests on synthetic data and CI on three Python versions.
 
 # Limitations and next steps
 
 - *Protocol.* Holding out each user's last item is the standard protocol for this benchmark, but it does not hold out a global time window, so other users' later behaviour can leak into training. A global temporal split is the natural next check.
-- *Budget.* Two SASRec seeds hit the 40-epoch cap while validation NDCG was still rising slightly, so the SASRec and re-ranker numbers are probably a little conservative.
+- *Budget.* SASRec stops after three validation checks without improvement. All seeds converged well inside the 120-epoch cap, but a longer patience or a learning-rate schedule might still help slightly, and CPU multithreading makes retrained numbers reproducible only approximately.
 - *Variant.* The transformer uses full softmax cross-entropy rather than the original sampled loss, so its numbers should not be compared directly with papers that report sampled metrics.
 - *Re-ranker.* It is trained with the seed-0 transformer, which was early-stopped on the same validation targets, so its training signal is mildly optimistic. Its test evaluation is clean. Next steps: a candidate pool weighted towards SASRec to lift the 64% recall ceiling, and session-level features.
 - *Scope.* One dataset with binary implicit feedback and only genre side information. Larger catalogues (millions of items) would need approximate nearest-neighbour retrieval in place of full scoring.
@@ -149,7 +150,7 @@ Three findings stand out.
 pip install -e ".[dev]"
 ruff check src tests && pytest          # synthetic data, no downloads
 # unzip MovieLens-1M into data/raw/ml-1m/ (not redistributed)
-seqrec run-all --threads 12 --verbose   # writes docs/results/metrics.json + figures
+seqrec run-all --threads 2 --verbose    # writes docs/results/metrics.json + figures
 ```
 
-SASRec checkpoints are cached per seed in `results/cache/`, so re-running the evaluation takes about two minutes on CPU.
+SASRec checkpoints are cached per seed and training config in `results/cache/`, so re-running the evaluation takes about two minutes on CPU.

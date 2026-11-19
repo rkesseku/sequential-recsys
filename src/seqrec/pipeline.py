@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from dataclasses import asdict
@@ -62,15 +63,30 @@ def summarize(ranks: np.ndarray, top10: np.ndarray, split: Split, n_boot: int,
     return out
 
 
+def _cache_fields(cfg: SASRecConfig) -> dict:
+    """Config fields that change the trained model (thread count does not)."""
+    return {k: v for k, v in asdict(cfg).items() if k != "threads"}
+
+
+def sasrec_cache_path(cache_dir: Path, cfg: SASRecConfig) -> Path:
+    """Checkpoint path keyed on the full training config, so changing e.g. the epoch cap
+    never silently reuses a checkpoint trained under different settings."""
+    fields = {k: v for k, v in _cache_fields(cfg).items() if k != "seed"}
+    key = hashlib.sha1(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:10]
+    return Path(cache_dir) / f"sasrec_{key}_seed{cfg.seed}.pt"
+
+
 def sasrec_for_seed(split: Split, cfg: SASRecConfig, cache_dir: Path | None,
                     verbose: bool = False) -> SASRec:
-    """Load a cached checkpoint for this seed if present, otherwise train and cache it."""
+    """Load a cached checkpoint for this seed and config if present, otherwise train and cache."""
     import torch
 
-    path = cache_dir / f"sasrec_seed{cfg.seed}.pt" if cache_dir else None
+    path = sasrec_cache_path(cache_dir, cfg) if cache_dir else None
     model = SASRec(cfg)
     if path is not None and path.exists():
         ck = torch.load(path, map_location="cpu", weights_only=False)
+        if {k: v for k, v in ck["cfg"].items() if k != "threads"} != _cache_fields(cfg):
+            raise ValueError(f"cached checkpoint {path} was trained with a different config")
         model.cfg = SASRecConfig(**ck["cfg"])
         from .sasrec import SASRecNet
 

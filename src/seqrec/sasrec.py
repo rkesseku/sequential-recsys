@@ -25,7 +25,7 @@ class SASRecConfig:
     dropout: float = 0.2
     lr: float = 2e-3
     batch_size: int = 128
-    epochs: int = 40
+    epochs: int = 120
     patience: int = 3
     eval_every: int = 2
     seed: int = 0

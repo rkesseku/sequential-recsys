@@ -50,7 +50,7 @@ repo.** Download `ml-1m.zip` from GroupLens yourself and unzip it to `data/raw/m
 | Popularity | Most-interacted films in training data |
 | ItemKNN | Cosine item-item similarity on the binary matrix, shrinkage 10, top-k neighbours (k tuned: 50) |
 | EASE | Closed-form item-item autoencoder (Steck, 2019), λ tuned on validation (250) |
-| SASRec | Causal self-attention over the last 100 items (Kang & McAuley, 2018): 2 pre-LN blocks, d=64, 1 head, dropout 0.2, shared input/output embeddings, **full softmax cross-entropy** instead of the paper's single sampled negative, Adam lr 2e-3, at most 40 epochs, early stopping (patience 3 evaluations, every 2 epochs) |
+| SASRec | Causal self-attention over the last 100 items (Kang & McAuley, 2018): 2 pre-LN blocks, d=64, 1 head, dropout 0.2, shared input/output embeddings, **full softmax cross-entropy** instead of the paper's single sampled negative, Adam lr 2e-3, at most 120 epochs, early stopping (patience 3 evaluations, every 2 epochs; every seed stopped early, after 38–56 epochs) |
 | Re-ranker | LightGBM LambdaRank over the top 100 of the merged EASE + SASRec lists. 10 features: EASE, SASRec and ItemKNN score and rank, log popularity, log recent popularity, log history length, genre affinity. Trained on the **validation** targets, evaluated on test |
 
 ## Results (test set, 6,040 users)
@@ -60,55 +60,62 @@ repo.** Download `ml-1m.zip` from GroupLens yourself and unzip it to `data/raw/m
 | Popularity | 0.0180 [0.0156, 0.0206] | 0.0369 [0.0326, 0.0416] | 0.139 | 5.4% | 100% |
 | ItemKNN (k=50) | 0.0403 [0.0364, 0.0443] | 0.0805 [0.0735, 0.0876] | 0.252 | 37.7% | 82.3% |
 | EASE (λ=250) | 0.0530 [0.0491, 0.0574] | 0.1079 [0.1005, 0.1159] | 0.320 | 38.1% | 81.5% |
-| SASRec (seed 0) | 0.1653 [0.1584, 0.1733] | 0.2891 [0.2778, 0.3007] | 0.553 | 64.8% | 45.9% |
-| **Re-ranker** | **0.1719 [0.1639, 0.1796]** | **0.2972 [0.2854, 0.3089]** | 0.567* | 60.0% | 52.5% |
+| SASRec (seed 0) | 0.1666 [0.1593, 0.1744] | 0.2907 [0.2803, 0.3030] | 0.558 | 64.8% | 46.8% |
+| **Re-ranker** | **0.1751 [0.1676, 0.1831]** | **0.3045 [0.2930, 0.3169]** | 0.569* | 60.5% | 53.7% |
 
-\*The re-ranker can only reorder its 100 candidates. The test target was among them for 64.2% of
-users, compared with SASRec's own Recall@100 of 0.664, because half of each candidate list comes
+\*The re-ranker can only reorder its 100 candidates. The test target was among them for 64.5% of
+users, compared with SASRec's own Recall@100 of 0.668, because half of each candidate list comes
 from EASE.
 
 **Paired differences in NDCG@10** (bootstrap over users):
 
 | Comparison | Difference [95% CI] |
 |---|---|
-| SASRec − EASE | +0.1123 [+0.1050, +0.1204] |
-| Re-ranker − SASRec | +0.0066 [+0.0027, +0.0104] |
+| SASRec − EASE | +0.1135 [+0.1061, +0.1216] |
+| Re-ranker − SASRec | +0.0085 [+0.0047, +0.0123] |
 | EASE − ItemKNN | +0.0128 [+0.0092, +0.0166] |
 
-**Across SASRec seeds** (0, 1, 2), test NDCG@10 is 0.1656 ± 0.0016 (mean ± SD) and HR@10 is
-0.2890 ± 0.0003, so the per-user intervals above are not an artefact of one lucky seed.
+**Across SASRec seeds** (0, 1, 2), test NDCG@10 is 0.1662 ± 0.0015 (mean ± SD) and HR@10 is
+0.2913 ± 0.0017, so the per-user intervals above are not an artefact of one lucky seed. With the
+epoch cap raised from 40 to 120, every seed stopped on validation early stopping (seed 0 after 56
+epochs, best at epoch 50; seed 1 after 48, best at 42; seed 2 after 38, best at 32). Under the old
+40-epoch cap, seed 0 was still improving when it was cut off; training it to convergence raised its
+test NDCG@10 from 0.1653 to 0.1666.
 
 What the numbers say:
 
 - **Order matters a lot here.** The sequential model triples NDCG@10 over the best order-agnostic
   model. A film fan's next pick depends strongly on what they watched most recently, and EASE and
   ItemKNN discard that signal.
-- **The learned ranker adds a small but statistically clear gain** (+0.0066, about 4% relative).
-  This gain is about four times the seed-to-seed SD of SASRec, but it is measured against one SASRec
-  seed. Most of the ranker's gain comes from SASRec's rank and score (together 70% of the trees' total gain)
-  with EASE, recency and genre signals as minor corrections. The ranker's own ceiling is the 64.2%
+- **The learned ranker adds a small but statistically clear gain** (+0.0085, about 5% relative).
+  It did not shrink when SASRec was trained to convergence: it grew from +0.0066 against the
+  40-epoch model. The gain is about five times the seed-to-seed SD of SASRec, but it is measured
+  against one SASRec seed. Most of the ranker's gain comes from SASRec's rank and score (together 67% of the trees' total gain)
+  with EASE, recency and genre signals as minor corrections. The ranker's own ceiling is the 64.5%
   candidate recall.
-- **Better accuracy came with less popularity concentration.** SASRec gives 46% of top-10 slots to
+- **Better accuracy came with less popularity concentration.** SASRec gives 47% of top-10 slots to
   the head of the catalogue (EASE: 81%) and covers 65% of the catalogue (EASE: 38%). The re-ranker
-  trades a little of that back: head share rises to 52.5% and coverage falls to 60%.
+  trades a little of that back: head share rises to 53.7% and coverage falls to 60.5%.
 
 ![Accuracy](docs/results/accuracy.png)
 ![Recall@K](docs/results/recall_curve.png)
 ![SASRec training](docs/results/sasrec_training.png)
 ![Accuracy vs popularity](docs/results/accuracy_vs_popularity.png)
 
-**Compute.** Everything ran on CPU. SASRec took 21–89 minutes of wall-clock time per seed on a
-shared 14-core machine (the spread reflects machine load, not the model). With cached checkpoints,
-the rest of `run-all` (tuning, EASE, ItemKNN, features, re-ranker, bootstrap) took 120 s.
+**Compute.** Everything ran on CPU with 2 threads on a shared 14-core machine. SASRec took 35–95
+minutes of wall-clock time per seed (38–56 epochs; per-epoch time varied with machine load). With
+cached checkpoints, the rest of `run-all` (tuning, EASE, ItemKNN, features, re-ranker, bootstrap)
+took 108 s.
 
 ## Limitations
 
 - **One dataset, one split type.** Leave-last-out per user does not hold out a global time window,
   so other users' later interactions can inform training. This is the standard protocol for this
   benchmark but is not a deployment simulation. A global temporal split would be stricter.
-- **Training budget.** Two of the three SASRec seeds reached the 40-epoch cap while validation NDCG
-  was still creeping up (see the training plot), so the SASRec numbers are probably slightly
-  conservative.
+- **Training budget.** SASRec is early-stopped on validation NDCG with patience 3 (6 epochs). All
+  three seeds stopped well before the 120-epoch cap, but a larger patience or a learning-rate
+  schedule might still find slightly better checkpoints. Runs are on CPU with multithreaded
+  kernels, so re-training a seed reproduces its numbers only approximately.
 - **SASRec variant.** It uses full softmax cross-entropy and `torch.nn` pre-LN blocks, not the
   paper's exact sampled-BCE setup, so the numbers are not directly comparable to sampled-metric
   results in the literature.
@@ -124,12 +131,13 @@ the rest of `run-all` (tuning, EASE, ItemKNN, features, re-ranker, bootstrap) to
 pip install -e ".[dev]"            # CPU torch is enough
 ruff check src tests && pytest     # synthetic data only, no downloads
 # put MovieLens-1M in data/raw/ml-1m/ first
-seqrec train-sasrec --seed 0 --threads 12 --verbose   # optional: train/cache one seed at a time
-seqrec run-all --threads 12 --verbose                 # tunes, trains/loads 3 seeds, writes docs/results/
+seqrec train-sasrec --seed 0 --threads 2 --verbose    # optional: train/cache one seed at a time
+seqrec run-all --threads 2 --verbose                  # tunes, trains/loads 3 seeds, writes docs/results/
 seqrec plots                                          # redraw figures from metrics.json
 ```
 
-SASRec checkpoints are cached in `results/cache/` (gitignored), so `run-all` reuses them. On some
+SASRec checkpoints are cached in `results/cache/` (gitignored), keyed on the seed and a hash of the
+training config, so `run-all` reuses them only when the settings match. On some
 Windows conda environments, numpy (MKL) and PyTorch load two OpenMP runtimes. If you see
 `OMP: Error #15`, set `KMP_DUPLICATE_LIB_OK=TRUE` for the session. CI on Linux does not need this.
 
@@ -146,7 +154,7 @@ src/seqrec/
   rerank.py     candidate merging, features, LightGBM LambdaRank
   pipeline.py   end-to-end experiment -> metrics.json
   plots.py, cli.py
-tests/          19 tests on tiny synthetic interaction logs
+tests/          20 tests on tiny synthetic interaction logs
 ```
 
 ## References

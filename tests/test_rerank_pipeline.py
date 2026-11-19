@@ -3,7 +3,7 @@ import json
 import numpy as np
 
 from seqrec.cli import main
-from seqrec.pipeline import run_pipeline
+from seqrec.pipeline import run_pipeline, sasrec_cache_path
 from seqrec.plots import make_all
 from seqrec.rerank import full_ranks, merge_candidates, rerank_ranks
 
@@ -37,7 +37,7 @@ def test_run_pipeline_end_to_end(split, tiny_cfg, tmp_path):
         assert d["ndcg10"]["lo"] <= d["ndcg10"]["mean"] <= d["ndcg10"]["hi"]
         assert 0 <= d["coverage10"] <= 1
     assert len(res["sasrec_seeds"]) == 2
-    assert (tmp_path / "cache" / "sasrec_seed0.pt").exists()
+    assert sasrec_cache_path(tmp_path / "cache", tiny_cfg).exists()
     saved = json.loads((tmp_path / "metrics.json").read_text())
     assert saved["reranker"]["n_candidates"] == 20
     assert abs(sum(saved["reranker"]["feature_gain_share"].values()) - 1) < 1e-6
@@ -55,3 +55,12 @@ def test_cli_plots(split, tiny_cfg, tmp_path, capsys):
                  ease_grid=(10.0,), knn_grid=(10,))
     main(["plots", "--metrics", str(tmp_path / "metrics.json"), "--out", str(tmp_path / "p")])
     assert "accuracy.png" in capsys.readouterr().out
+
+
+def test_cache_path_depends_on_training_config(tiny_cfg, tmp_path):
+    from dataclasses import replace
+
+    base = sasrec_cache_path(tmp_path, tiny_cfg)
+    assert sasrec_cache_path(tmp_path, replace(tiny_cfg, threads=2)) == base
+    assert sasrec_cache_path(tmp_path, replace(tiny_cfg, epochs=tiny_cfg.epochs + 1)) != base
+    assert sasrec_cache_path(tmp_path, replace(tiny_cfg, seed=1)) != base
