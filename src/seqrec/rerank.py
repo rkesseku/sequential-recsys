@@ -88,11 +88,37 @@ def build_features(split: Split, stage: str, inp: StageInputs, cands: np.ndarray
     return np.column_stack(cols).astype(np.float32)
 
 
+# The fixed re-ranker recipe (LightGBM names; ``n_estimators`` is the cap for early stopping).
+RANKER_DEFAULTS = {
+    "num_leaves": 31, "learning_rate": 0.05, "min_child_samples": 50,
+    "feature_fraction": 0.9, "bagging_fraction": 0.8, "bagging_freq": 1,
+    "lambda_l2": 0.0, "n_estimators": 600,
+}
+
+
+def lgbm_kwargs(params: dict) -> dict:
+    """Translate ``RANKER_DEFAULTS``-style names to ``lightgbm.LGBMRanker`` keyword arguments."""
+    p = {**RANKER_DEFAULTS, **params}
+    return {"n_estimators": int(p["n_estimators"]), "learning_rate": float(p["learning_rate"]),
+            "num_leaves": int(p["num_leaves"]), "min_child_samples": int(p["min_child_samples"]),
+            "subsample": float(p["bagging_fraction"]), "subsample_freq": int(p["bagging_freq"]),
+            "colsample_bytree": float(p["feature_fraction"]),
+            "reg_lambda": float(p["lambda_l2"])}
+
+
 def train_ranker(x: np.ndarray, y: np.ndarray, n_cand: int, seed: int = 0,
-                 n_estimators: int = 600):
-    """Fit LambdaRank on groups that contain the positive; 10% of users for early stopping."""
+                 n_estimators: int | None = None, params: dict | None = None,
+                 n_jobs: int | None = None):
+    """Fit LambdaRank on groups that contain the positive; 10% of users for early stopping.
+
+    ``params`` overrides ``RANKER_DEFAULTS`` (an explicit ``n_estimators`` overrides both).
+    """
     import lightgbm as lgb
 
+    params = dict(params or {})
+    if n_estimators is not None:
+        params["n_estimators"] = n_estimators
+    kw = lgbm_kwargs(params)
     groups = y.reshape(-1, n_cand)
     keep = np.flatnonzero(groups.sum(axis=1) > 0)
     rng = np.random.default_rng(seed)
@@ -106,15 +132,13 @@ def train_ranker(x: np.ndarray, y: np.ndarray, n_cand: int, seed: int = 0,
 
     xtr, ytr = take(tr)
     xes, yes = take(es)
-    model = lgb.LGBMRanker(objective="lambdarank", n_estimators=n_estimators,
-                           learning_rate=0.05, num_leaves=31, min_child_samples=50,
-                           subsample=0.8, subsample_freq=1, colsample_bytree=0.9,
-                           random_state=seed, verbose=-1)
+    extra = {} if n_jobs is None else {"n_jobs": n_jobs}
+    model = lgb.LGBMRanker(objective="lambdarank", random_state=seed, verbose=-1, **kw, **extra)
     model.fit(xtr, ytr, group=[n_cand] * len(tr), eval_set=[(xes, yes)],
               eval_group=[[n_cand] * len(es)], eval_at=[10],
               callbacks=[lgb.early_stopping(50, verbose=False)])
     return model, {"n_train_groups": int(len(tr)), "n_es_groups": int(len(es)),
-                   "best_iteration": int(model.best_iteration_ or n_estimators)}
+                   "best_iteration": int(model.best_iteration_ or kw["n_estimators"])}
 
 
 def rerank_ranks(pred: np.ndarray, cands: np.ndarray, targets: np.ndarray,

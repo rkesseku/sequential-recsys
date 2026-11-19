@@ -107,6 +107,53 @@ minutes of wall-clock time per seed (38–56 epochs; per-epoch time varied with 
 cached checkpoints, the rest of `run-all` (tuning, EASE, ItemKNN, features, re-ranker, bootstrap)
 took 108 s.
 
+## Does tuning help?
+
+The re-ranker above uses one fixed LightGBM recipe. `seqrec tune` asks whether a hyperparameter
+search improves it. It runs an Optuna TPE search (Akiba et al., 2019; 100 trials, sampler seed 0,
+the fixed recipe enqueued as trial 0) over `num_leaves`, `learning_rate`, `min_child_samples`,
+`feature_fraction`, `bagging_fraction`/`bagging_freq`, `lambda_l2` and the `n_estimators` cap
+(early stopping as in the main pipeline).
+
+**Validation without touching test.** The ranker is *trained* on the validation films, so the
+validation stage cannot also score its hyperparameters as-is. A separate time-based split was not
+carved out, because that would mean retraining SASRec on shorter histories. Instead the 6,040
+validation-stage users are split once at random into 4,832 *fit* users and 1,208 *tune* users. Each
+trial trains the ranker on the fit users (same routine, same 10% early-stopping hold-out) and is
+scored by NDCG@10 on the tune users. Every candidate, feature and label in the search comes from
+training histories and validation films; test targets are never read (a test checks that corrupting
+them leaves every trial unchanged). Afterwards both recipes are trained on all validation-stage
+users and scored once on test for seeds 0, 1 and 2 (seed *s* = SASRec seed *s* features and
+LightGBM seed *s*), with a paired bootstrap over users (1,000 resamples) of tuned minus default.
+
+| Recipe | Validation NDCG@10 | Test NDCG@10, seed 0 | Seed 1 | Seed 2 | Test NDCG@10, mean ± SD | Test HR@10, mean |
+|---|---|---|---|---|---|---|
+| Default | 0.1738 | 0.1751 | **0.1755** | 0.1746 | 0.1750 ± 0.0005 | 0.3039 |
+| Tuned | **0.1849** | **0.1761** | 0.1732 | **0.1773** | **0.1755** ± 0.0021 | **0.3040** |
+
+Bold marks the best value in each column (highest). Validation NDCG@10 is on the 1,208 tune users,
+averaged over LightGBM seeds 0-2; these users also selected the tuned recipe, so its validation
+value is optimistic. Test values are for 6,040 users; the seed-0 default is the headline re-ranker
+(0.1751).
+
+**Tuned minus default, test NDCG@10** (95% paired bootstrap interval over users): seed 0 +0.0010
+[−0.0019, +0.0039]; seed 1 −0.0023 [−0.0058, +0.0015]; seed 2 +0.0028 [+0.0000, +0.0057]; on each
+user's NDCG@10 averaged over the three seeds +0.0005 [−0.0013, +0.0025].
+
+Chosen recipe: `num_leaves` 11, `learning_rate` 0.066, `min_child_samples` 8, `feature_fraction`
+0.72, `bagging_fraction` 0.66 with `bagging_freq` 3, `lambda_l2` 3.4, `n_estimators` cap 1,392
+(default: 31, 0.05, 50, 0.9, 0.8 / 1, 0, 600). The search took 3.7 minutes (100 trials of 1-9 s each)
+and the whole study 6.6 minutes with 13 LightGBM threads; details in
+[`docs/results/tuning.md`](docs/results/tuning.md).
+
+**Reading.** Tuning does not help on test. The search raised tune-user NDCG@10 by about 0.011, but
+on test the tuned recipe is better for two seeds, worse for one, and its seed-averaged gain of
++0.0005 has an interval that includes zero. It is also less stable across seeds (SD 0.0021 against
+0.0005). One visible reason: on the full validation stage the tuned recipe early-stopped after only
+3-21 trees (default: 15-47), so the noisy 10% early-stopping hold-out, not the searched parameters,
+largely decides the final model. The headline numbers therefore stay with the fixed recipe, and the
+conclusion that the re-ranker adds +0.0085 over SASRec is unchanged.
+
 ## Limitations
 
 - **One dataset, one split type.** Leave-last-out per user does not hold out a global time window,
@@ -128,12 +175,13 @@ took 108 s.
 ## How to run
 
 ```bash
-pip install -e ".[dev]"            # CPU torch is enough
+pip install -e ".[dev]"            # CPU torch is enough; dev includes optuna
 ruff check src tests && pytest     # synthetic data only, no downloads
 # put MovieLens-1M in data/raw/ml-1m/ first
 seqrec train-sasrec --seed 0 --threads 2 --verbose    # optional: train/cache one seed at a time
 seqrec run-all --threads 2 --verbose                  # tunes, trains/loads 3 seeds, writes docs/results/
 seqrec plots                                          # redraw figures from metrics.json
+seqrec tune --threads 13 --n-jobs 13                 # Optuna study -> docs/results/tuning.*
 ```
 
 SASRec checkpoints are cached in `results/cache/` (gitignored), keyed on the seed and a hash of the
@@ -152,13 +200,16 @@ src/seqrec/
   models.py     Popularity, ItemKNN, EASE
   sasrec.py     SASRec-style transformer with early stopping
   rerank.py     candidate merging, features, LightGBM LambdaRank
+  tuning.py     Optuna study for the re-ranker -> tuning.json, tuning.md
   pipeline.py   end-to-end experiment -> metrics.json
   plots.py, cli.py
-tests/          20 tests on tiny synthetic interaction logs
+tests/          23 tests on tiny synthetic interaction logs
 ```
 
 ## References
 
+- T. Akiba, S. Sano, T. Yanase, T. Ohta and M. Koyama. Optuna: A Next-generation Hyperparameter
+  Optimization Framework. *KDD*, 2019.
 - F. M. Harper and J. A. Konstan. The MovieLens Datasets: History and Context. *ACM TiiS*, 2015.
 - W.-C. Kang and J. McAuley. Self-Attentive Sequential Recommendation. *ICDM*, 2018.
 - H. Steck. Embarrassingly Shallow Autoencoders for Sparse Data. *WWW*, 2019.

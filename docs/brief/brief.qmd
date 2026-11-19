@@ -129,12 +129,25 @@ Three findings stand out.
 
 {{< pagebreak >}}
 
+# Does tuning help?
+
+The re-ranker uses one fixed LightGBM recipe, so I tested whether a hyperparameter search improves it: Optuna's TPE sampler [@akiba2019] with 100 trials (seed 0, the fixed recipe enqueued as trial 0) over leaves, learning rate, minimum leaf size, feature and bagging fractions, L2 penalty and the tree cap. Because the ranker is trained on the validation films, they cannot also score its settings directly, and a time-based carve-out would mean retraining SASRec. Instead the validation-stage users were split once at random into 4,832 *fit* users, on which each trial trains, and 1,208 *tune* users, on which it is scored by NDCG\@10. Test targets are never read during the search; a unit test confirms that corrupting them leaves every trial unchanged. Both recipes were then retrained on all validation users and scored once on test for seeds 0--2 (SASRec and LightGBM seed alike). The search took 3.7 minutes and the whole study 6.6 minutes with 13 threads.
+
+| Recipe | Val. NDCG\@10 | Test, seed 0 | Seed 1 | Seed 2 | Test mean ± SD | HR\@10 mean |
+|-----------|-----------------|-----------------|---------|---------|---------------------|---------------|
+| Default | 0.1738 | 0.1751 | **0.1755** | 0.1746 | 0.1750 ± 0.0005 | 0.3039 |
+| Tuned | **0.1849** | **0.1761** | 0.1732 | **0.1773** | **0.1755** ± 0.0021 | **0.3040** |
+
+: Re-ranker NDCG\@10 with the fixed and the Optuna-tuned LightGBM recipe. Validation is the 1,208 tune users (mean of three LightGBM seeds), which also selected the tuned recipe, so its value there is optimistic; test covers 6,040 users. Bold marks the best (highest) value in each column. {#tbl-tuning}
+
+*Tuning does not help on test.* The search lifted tune-user NDCG\@10 by about 0.011, but tuned minus default on test was +0.0010 (95% CI [−0.0019, +0.0039]) for seed 0, −0.0023 [−0.0058, +0.0015] for seed 1 and +0.0028 [+0.0000, +0.0057] for seed 2. On each user's seed-averaged NDCG\@10 it was +0.0005 [−0.0013, +0.0025], and the tuned recipe varied more across seeds. Retrained on all validation users, it early-stopped after only 3--21 trees, so the small early-stopping hold-out decides more of the final model than the searched settings do. The headline keeps the fixed recipe, and the re-ranker's +0.0085 gain over SASRec stands.
+
 # What this demonstrates
 
 - *Recommender systems end to end:* candidate retrieval with classical and neural models, feature engineering, and learning-to-rank with LambdaRank [@burges2010], the architecture used by large consumer platforms.
 - *Evaluation discipline:* chronological splits, full-catalogue ranking, validation-only tuning, bootstrap intervals, paired tests and multiple seeds. Beyond accuracy, it reports coverage and popularity concentration, the metrics product teams care about.
 - *Deep learning from first principles:* a transformer recommender written directly in PyTorch, with early stopping and checkpoint caching, trained on CPU.
-- *Engineering:* a small package with one model interface, a CLI that regenerates every reported number, 20 tests on synthetic data and CI on three Python versions.
+- *Engineering:* a small package with one model interface, a CLI that regenerates every reported number, 23 tests on synthetic data and CI on three Python versions.
 
 # Limitations and next steps
 

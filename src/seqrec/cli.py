@@ -1,4 +1,4 @@
-"""Command-line entry point: ``seqrec run-all``, ``seqrec train-sasrec``, ``seqrec plots``."""
+"""Command-line entry point: ``seqrec run-all``, ``train-sasrec``, ``tune``, ``plots``."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ def _cfg(args: argparse.Namespace, seed: int):
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="seqrec")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("run-all", "train-sasrec"):
+    for name in ("run-all", "train-sasrec", "tune"):
         s = sub.add_parser(name)
         s.add_argument("--data", default="data/raw/ml-1m")
         s.add_argument("--cache", default="results/cache")
@@ -27,10 +27,15 @@ def main(argv: list[str] | None = None) -> None:
         s.add_argument("--dim", type=int, default=64)
         s.add_argument("--threads", type=int, default=None)
         s.add_argument("--verbose", action="store_true")
-        if name == "run-all":
+        if name in ("run-all", "tune"):
             s.add_argument("--out", default="docs/results")
             s.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
             s.add_argument("--n-boot", type=int, default=1000)
+        if name == "tune":
+            s.add_argument("--trials", type=int, default=100)
+            s.add_argument("--timeout", type=float, default=None, help="search limit, seconds")
+            s.add_argument("--n-jobs", type=int, default=None, help="LightGBM threads")
+            s.add_argument("--n-cand", type=int, default=100)
         else:
             s.add_argument("--seed", type=int, default=0)
     pl = sub.add_parser("plots")
@@ -54,6 +59,19 @@ def main(argv: list[str] | None = None) -> None:
         m = sasrec_for_seed(split, _cfg(args, args.seed), Path(args.cache), verbose=args.verbose)
         print(json.dumps({"seed": args.seed, "best_val_ndcg10": m.best_val_,
                           "epochs": len(m.history_), "seconds": m.train_seconds_}))
+        return
+
+    if args.cmd == "tune":
+        from .tuning import run_tuning
+
+        r = run_tuning(split, args.out, sasrec_cfg=_cfg(args, args.seeds[0]),
+                       seeds=tuple(args.seeds), cache_dir=args.cache, n_trials=args.trials,
+                       n_cand=args.n_cand, n_boot=args.n_boot, n_jobs=args.n_jobs,
+                       timeout=args.timeout, verbose=args.verbose)
+        d = r["test"]["tuned_minus_default_ndcg10_seed_mean"]
+        print(f"tune NDCG@10 default={r['search']['default_tune_ndcg10']:.4f} "
+              f"tuned={r['search']['best_tune_ndcg10']:.4f}; test tuned-default "
+              f"{d['diff']:+.4f} [{d['lo']:+.4f}, {d['hi']:+.4f}]")
         return
 
     from .pipeline import run_pipeline
