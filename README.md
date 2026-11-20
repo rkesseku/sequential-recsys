@@ -15,8 +15,8 @@ Recommender papers and portfolios often report inflated accuracy because of thre
 ranking the true item against 100 sampled negatives, ignoring interaction order, or tuning on the
 test set. This repo avoids all three. The questions it answers:
 
-1. How much does **modelling the order of a user's history** buy over strong order-agnostic baselines?
-   EASE is a well-known, hard-to-beat linear model.
+1. How much does **modelling the order of a user's history** buy over strong order-agnostic baselines
+   such as EASE, a well-known linear model that is hard to beat?
 2. Does a **second-stage learned ranker**, the standard retrieval → ranking architecture used in
    production, add anything measurable on top of the best retriever?
 3. What happens to **catalogue coverage and popularity bias** as accuracy improves?
@@ -33,8 +33,8 @@ repo.** Download `ml-1m.zip` from GroupLens yourself and unzip it to `data/raw/m
 - **Split.** Per user, interactions are sorted by timestamp (ties keep file order). The last item is
   the test target and the second-to-last is the validation target. The rest is training data,
   averaging 163.6 items per user.
-- **Ranking.** Each model scores all 3,706 films; films the user has already seen are removed, and
-  the target's rank is pessimistic on ties. Metrics: HR@10, NDCG@10, Recall@K (equal to HR@K with
+- **Ranking.** Each model scores all 3,706 films. Films the user has already seen are removed, and
+  ties are broken pessimistically against the target. Metrics: HR@10, NDCG@10, Recall@K (equal to HR@K with
   one target), coverage@10 (share of the catalogue appearing in anyone's top 10) and head share@10
   (share of top-10 slots given to the 10% most-interacted films).
 - **No test leakage.** All models are fit on training interactions only. Hyperparameters (item-kNN
@@ -64,7 +64,7 @@ repo.** Download `ml-1m.zip` from GroupLens yourself and unzip it to `data/raw/m
 | **Re-ranker** | **0.1751 [0.1676, 0.1831]** | **0.3045 [0.2930, 0.3169]** | 0.569* | 60.5% | 53.7% |
 
 \*The re-ranker can only reorder its 100 candidates. The test target was among them for 64.5% of
-users, compared with SASRec's own Recall@100 of 0.668, because half of each candidate list comes
+users, slightly below SASRec's own Recall@100 of 0.668, because half of each candidate list comes
 from EASE.
 
 **Paired differences in NDCG@10** (bootstrap over users):
@@ -77,20 +77,20 @@ from EASE.
 
 **Across SASRec seeds** (0, 1, 2), test NDCG@10 is 0.1662 ± 0.0015 (mean ± SD) and HR@10 is
 0.2913 ± 0.0017, so the per-user intervals above are not an artefact of one lucky seed. With the
-epoch cap raised from 40 to 120, every seed stopped on validation early stopping (seed 0 after 56
-epochs, best at epoch 50; seed 1 after 48, best at 42; seed 2 after 38, best at 32). Under the old
-40-epoch cap, seed 0 was still improving when it was cut off; training it to convergence raised its
+epoch cap raised from 40 to 120, every seed was halted by validation early stopping (seed 0 after 56
+epochs with its best at epoch 50, seed 1 after 48 with its best at 42, and seed 2 after 38 with its best at 32). Under the old
+40-epoch cap, seed 0 was still improving when it was cut off. Training it to convergence raised its
 test NDCG@10 from 0.1653 to 0.1666.
 
 What the numbers say:
 
-- **Order matters a lot here.** The sequential model triples NDCG@10 over the best order-agnostic
+- **Order matters a lot here.** The sequential model triples the NDCG@10 of the best order-agnostic
   model. A film fan's next pick depends strongly on what they watched most recently, and EASE and
   ItemKNN discard that signal.
 - **The learned ranker adds a small but statistically clear gain** (+0.0085, about 5% relative).
-  It did not shrink when SASRec was trained to convergence: it grew from +0.0066 against the
+  It did not shrink when SASRec was trained to convergence. In fact it grew, from +0.0066 against the
   40-epoch model. The gain is about five times the seed-to-seed SD of SASRec, but it is measured
-  against one SASRec seed. Most of the ranker's gain comes from SASRec's rank and score (together 67% of the trees' total gain)
+  against one SASRec seed. The ranker relies mostly on SASRec's rank and score (together 67% of the trees' total gain),
   with EASE, recency and genre signals as minor corrections. The ranker's own ceiling is the 64.5%
   candidate recall.
 - **Better accuracy came with less popularity concentration.** SASRec gives 47% of top-10 slots to
@@ -103,28 +103,29 @@ What the numbers say:
 ![Accuracy vs popularity](docs/results/accuracy_vs_popularity.png)
 
 **Compute.** Everything ran on CPU with 2 threads on a shared 14-core machine. SASRec took 35–95
-minutes of wall-clock time per seed (38–56 epochs; per-epoch time varied with machine load). With
+minutes of wall-clock time per seed (38–56 epochs, with per-epoch time varying with machine load). With
 cached checkpoints, the rest of `run-all` (tuning, EASE, ItemKNN, features, re-ranker, bootstrap)
 took 108 s.
 
 ## Does tuning help?
 
 The re-ranker above uses one fixed LightGBM recipe. `seqrec tune` asks whether a hyperparameter
-search improves it. It runs an Optuna TPE search (Akiba et al., 2019; 100 trials, sampler seed 0,
-the fixed recipe enqueued as trial 0) over `num_leaves`, `learning_rate`, `min_child_samples`,
+search improves it. It runs a 100-trial Optuna TPE search (Akiba et al., 2019) with sampler seed 0, with the
+fixed recipe entered as trial 0. The search covers `num_leaves`, `learning_rate`, `min_child_samples`,
 `feature_fraction`, `bagging_fraction`/`bagging_freq`, `lambda_l2` and the `n_estimators` cap
-(early stopping as in the main pipeline).
+(with early stopping as in the main pipeline).
 
 **Validation without touching test.** The ranker is *trained* on the validation films, so the
-validation stage cannot also score its hyperparameters as-is. A separate time-based split was not
-carved out, because that would mean retraining SASRec on shorter histories. Instead the 6,040
+same films cannot also be used to score its hyperparameters. A separate time-based split was not
+carved out, because that would mean retraining SASRec on shorter histories. Instead, the 6,040
 validation-stage users are split once at random into 4,832 *fit* users and 1,208 *tune* users. Each
 trial trains the ranker on the fit users (same routine, same 10% early-stopping hold-out) and is
 scored by NDCG@10 on the tune users. Every candidate, feature and label in the search comes from
-training histories and validation films; test targets are never read (a test checks that corrupting
+training histories and validation films. Test targets are never read (a unit test checks that corrupting
 them leaves every trial unchanged). Afterwards both recipes are trained on all validation-stage
-users and scored once on test for seeds 0, 1 and 2 (seed *s* = SASRec seed *s* features and
-LightGBM seed *s*), with a paired bootstrap over users (1,000 resamples) of tuned minus default.
+users and scored once on test for seeds 0, 1 and 2 (seed *s* means features from SASRec seed *s*
+and LightGBM seed *s*). The difference, tuned minus default, is assessed with a paired bootstrap
+over users (1,000 resamples).
 
 | Recipe | Validation NDCG@10 | Test NDCG@10, seed 0 | Seed 1 | Seed 2 | Test NDCG@10, mean ± SD | Test HR@10, mean |
 |---|---|---|---|---|---|---|
@@ -132,26 +133,26 @@ LightGBM seed *s*), with a paired bootstrap over users (1,000 resamples) of tune
 | Tuned | **0.1849** | **0.1761** | 0.1732 | **0.1773** | **0.1755** ± 0.0021 | **0.3040** |
 
 Bold marks the best value in each column (highest). Validation NDCG@10 is on the 1,208 tune users,
-averaged over LightGBM seeds 0-2; these users also selected the tuned recipe, so its validation
-value is optimistic. Test values are for 6,040 users; the seed-0 default is the headline re-ranker
+averaged over LightGBM seeds 0-2. These users also selected the tuned recipe, so its validation
+value is optimistic. Test values are for 6,040 users, and the seed-0 default is the headline re-ranker
 (0.1751).
 
-**Tuned minus default, test NDCG@10** (95% paired bootstrap interval over users): seed 0 +0.0010
-[−0.0019, +0.0039]; seed 1 −0.0023 [−0.0058, +0.0015]; seed 2 +0.0028 [+0.0000, +0.0057]; on each
-user's NDCG@10 averaged over the three seeds +0.0005 [−0.0013, +0.0025].
+**Tuned minus default, test NDCG@10** (95% paired bootstrap interval over users) is +0.0010
+[−0.0019, +0.0039] for seed 0, −0.0023 [−0.0058, +0.0015] for seed 1 and +0.0028 [+0.0000, +0.0057]
+for seed 2. On each user's NDCG@10 averaged over the three seeds it is +0.0005 [−0.0013, +0.0025].
 
 Chosen recipe: `num_leaves` 11, `learning_rate` 0.066, `min_child_samples` 8, `feature_fraction`
 0.72, `bagging_fraction` 0.66 with `bagging_freq` 3, `lambda_l2` 3.4, `n_estimators` cap 1,392
 (default: 31, 0.05, 50, 0.9, 0.8 / 1, 0, 600). The search took 3.7 minutes (100 trials of 1-9 s each)
-and the whole study 6.6 minutes with 13 LightGBM threads; details in
+and the whole study 6.6 minutes with 13 LightGBM threads. Details are in
 [`docs/results/tuning.md`](docs/results/tuning.md).
 
-**Reading.** Tuning does not help on test. The search raised tune-user NDCG@10 by about 0.011, but
-on test the tuned recipe is better for two seeds, worse for one, and its seed-averaged gain of
+**Reading.** Tuning does not help on the test set. The search raised tune-user NDCG@10 by about 0.011, but
+on the test set the tuned recipe is better for two seeds and worse for one, and its seed-averaged gain of
 +0.0005 has an interval that includes zero. It is also less stable across seeds (SD 0.0021 against
 0.0005). One visible reason: on the full validation stage the tuned recipe early-stopped after only
-3-21 trees (default: 15-47), so the noisy 10% early-stopping hold-out, not the searched parameters,
-largely decides the final model. The headline numbers therefore stay with the fixed recipe, and the
+3-21 trees (default: 15-47), so the final model depends more on the noisy 10% early-stopping hold-out
+than on the searched parameters. The headline numbers therefore stay with the fixed recipe, and the
 conclusion that the re-ranker adds +0.0085 over SASRec is unchanged.
 
 ## Limitations
@@ -163,7 +164,7 @@ conclusion that the re-ranker adds +0.0085 over SASRec is unchanged.
   three seeds stopped well before the 120-epoch cap, but a larger patience or a learning-rate
   schedule might still find slightly better checkpoints. Runs are on CPU with multithreaded
   kernels, so re-training a seed reproduces its numbers only approximately.
-- **SASRec variant.** It uses full softmax cross-entropy and `torch.nn` pre-LN blocks, not the
+- **SASRec variant.** It uses full softmax cross-entropy and `torch.nn` pre-LN blocks instead of the
   paper's exact sampled-BCE setup, so the numbers are not directly comparable to sampled-metric
   results in the literature.
 - **Re-ranker fairness.** The ranker is trained on validation targets with the seed-0 SASRec,
