@@ -82,7 +82,7 @@ This project avoids all three. Each user's interactions are kept in time order. 
 
 ## Architecture
 
-![Pipeline overview. One chronological split feeds four retrievers. EASE and SASRec candidates are merged and re-ranked by a LightGBM LambdaRank model trained on validation targets, and everything is scored on the held-out last item against the full catalogue.](figures/architecture.png){#fig-arch width=94%}
+![Pipeline overview. One chronological split feeds four retrievers. EASE and SASRec candidates are merged, with ItemKNN scores as extra features, and re-ranked by a LightGBM LambdaRank model trained on validation targets. Every model is scored on the held-out last item against the full catalogue.](figures/architecture.png){#fig-arch width=94%}
 
 ## Data
 
