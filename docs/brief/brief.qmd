@@ -1,6 +1,9 @@
 ---
 bibliography: references.bib
-bibliographystyle: apa
+csl: apa.csl
+citeproc: true
+link-citations: true
+link-bibliography: true
 linkcolor: "#1f4e9e"
 format:
   typst:
@@ -13,6 +16,7 @@ format:
 ---
 
 ```{=typst}
+#show <refs>: set par(hanging-indent: 0.5in, first-line-indent: 0pt, justify: false)
 #set text(hyphenate: false)
 #set bibliography(title: "References")
 #show cite: set text(fill: rgb("#1f4e9e"))
@@ -40,7 +44,7 @@ format:
   #linebreak()
   #text(size: 10pt)[#link("https://github.com/rkesseku/sequential-recsys")[github.com/rkesseku/sequential-recsys]]
   #v(0.45em)
-  #text(size: 9.5pt)[#emph[Keywords:] sequential recommendation; self-attention; learning to rank; full-catalogue evaluation; MovieLens]
+  #text(size: 9.5pt)[#emph[Keywords:] sequential recommendation, self-attention, learning to rank, full-catalogue evaluation, MovieLens]
 ]
 #v(0.5em)
 ```
@@ -58,17 +62,17 @@ format:
 
 # The problem
 
-A streaming service, a retailer or a news site faces the same question millions of times a day: *given this person's history, what should we show them next?* Getting it right drives engagement; getting it wrong wastes the most valuable screen space a product has.
+A streaming service, a retailer or a news site faces the same question millions of times a day: *given this person's history, what should we show them next?* Getting it right drives engagement. Getting it wrong wastes the most valuable screen space a product has.
 
-Two design questions dominate real recommender work. First, *does the order of a user's history matter*, or is it enough to know which items they liked? Order-agnostic models such as item-to-item similarity and the linear EASE model are cheap, robust and notoriously hard to beat. Sequence models such as transformers are more expensive and need to earn their place. Second, *is a second-stage ranker worth it?* Production systems usually retrieve a few hundred candidates with fast models, then reorder them with a feature-rich ranker. The ranker adds latency and engineering cost, so its gain should be measured, not assumed.
+Two design questions dominate real recommender work. First, *does the order of a user's history matter*, or is it enough to know which items they liked? Order-agnostic models such as item-to-item similarity and the linear EASE model are cheap, robust and notoriously hard to beat. Sequence models such as transformers are more expensive and need to earn their place. Second, *is a second-stage ranker worth it?* Production systems usually retrieve a few hundred candidates with fast models, then reorder them with a feature-rich ranker. The ranker adds latency and engineering cost, so its gain should be measured rather than assumed.
 
 ## Why evaluation is the real work
 
 Published recommender numbers are often hard to trust, for three common reasons:
 
-- the true item is ranked against only 100 randomly sampled films rather than the whole catalogue, which inflates scores and can even change which model looks best [@krichene2020];
-- interactions are shuffled, so a model can learn from a user's future;
-- hyperparameters are tuned on the test set.
+- The true item is ranked against only 100 randomly sampled films rather than the whole catalogue, which inflates scores and can even change which model looks best [@krichene2020].
+- Interactions are shuffled, so a model can learn from a user's future.
+- Hyperparameters are tuned on the test set.
 
 This project avoids all three. Each user's interactions are kept in time order, and the last film is held out for testing and the one before it for validation. Every model ranks the *entire* catalogue of 3,706 films, with films the user has already seen removed. All tuning, early stopping and re-ranker training use the validation film only. Results carry bootstrap confidence intervals over users, and the neural model is run with three random seeds.
 
@@ -78,7 +82,7 @@ This project avoids all three. Each user's interactions are kept in time order, 
 
 ## Architecture
 
-![Pipeline overview. One chronological split feeds four retrievers; EASE and SASRec candidates are merged and re-ranked by a LightGBM LambdaRank model trained on validation targets; everything is scored on the held-out last item against the full catalogue.](figures/architecture.png){#fig-arch width=94%}
+![Pipeline overview. One chronological split feeds four retrievers. EASE and SASRec candidates are merged and re-ranked by a LightGBM LambdaRank model trained on validation targets, and everything is scored on the held-out last item against the full catalogue.](figures/architecture.png){#fig-arch width=94%}
 
 ## Data
 
@@ -105,40 +109,40 @@ MovieLens-1M [@harper2015] contains 1,000,209 ratings by 6,040 users on 3,706 fi
 | SASRec (seed 0) | 0.167 [0.159, 0.174] | 0.291 [0.280, 0.303] | 0.558 | **64.8%** | **46.8%** |
 | Re-ranker | **0.175** [0.168, 0.183] | **0.305** [0.293, 0.317] | **0.569** | 60.5% | 53.7% |
 
-: Test results for 6,040 users, each ranked against the full catalogue with seen films removed. The re-ranker can only reorder its 100 candidates; the true film was among them for 64.5% of users. Bold marks the best value in each column: highest for accuracy and coverage, lowest for head share (less popularity concentration). {#tbl-results}
+: Test results for 6,040 users, each ranked against the full catalogue with seen films removed. The re-ranker can only reorder its 100 candidates. The true film was among them for 64.5% of users. Bold marks the best value in each column: highest for accuracy and coverage, lowest for head share (less popularity concentration). {#tbl-results}
 
-![Left: NDCG\@10; right: HR\@10, with 95% bootstrap intervals over users.](figures/accuracy.png){#fig-acc width=88%}
+![NDCG\@10 (left) and HR\@10 (right), with 95% bootstrap intervals over users.](figures/accuracy.png){#fig-acc width=88%}
 
-Three findings stand out.
+I draw three conclusions.
 
 *Order matters, a lot.* The transformer triples NDCG\@10 over EASE (paired difference +0.114, 95% CI [+0.106, +0.122]). The two non-sequential models differ by only +0.013 between themselves. On this data, what someone watched most recently is far more predictive than their overall taste profile. Across three seeds, SASRec's test NDCG\@10 was 0.1662 ± 0.0015 (mean ± SD), so the gap is not a lucky initialisation.
 
-*The second-stage ranker earns a modest, measurable gain.* Re-ranking lifts NDCG\@10 by +0.0085 (95% CI [+0.0047, +0.0123]), about 5% relative and roughly five times SASRec's seed-to-seed spread. An earlier run capped SASRec at 40 epochs, which cut off seed 0 while it was still improving; training to convergence raised SASRec (0.1653 to 0.1666) and the re-ranker gain grew rather than shrank (from +0.0066). The ranker leans mainly on SASRec's rank and score (67% of the trees' total gain), using EASE, recency and genre affinity as corrections. Its ceiling is its candidate pool: the merged list contained the test film for 64.5% of users, slightly fewer than SASRec's own top 100 (66.8%), because half the slots go to EASE.
+*The second-stage ranker earns a modest, measurable gain.* Re-ranking lifts NDCG\@10 by +0.0085 (95% CI [+0.0047, +0.0123]), about 5% relative and roughly five times SASRec's seed-to-seed spread. An earlier run capped SASRec at 40 epochs, which cut off seed 0 while it was still improving. Training to convergence raised SASRec (0.1653 to 0.1666), and the re-ranker gain grew rather than shrank (from +0.0066). The ranker leans mainly on SASRec's rank and score (67% of the trees' total gain), using EASE, recency and genre affinity as corrections. Its ceiling is its candidate pool: the merged list contained the test film for 64.5% of users, slightly fewer than SASRec's own top 100 (66.8%), because half the slots go to EASE.
 
 {{< pagebreak >}}
 
-![Share of users whose next film appears in the top K. The transformer dominates at every K; the re-ranker improves the top of the list but is capped by candidate recall at K = 100.](figures/recall_curve.png){#fig-recall width=62%}
+![Share of users whose next film appears in the top K. The transformer dominates at every K. The re-ranker improves the top of the list but is capped by candidate recall at K = 100.](figures/recall_curve.png){#fig-recall width=62%}
 
 *Higher accuracy did not mean more popularity bias.* It is often assumed that accurate recommenders simply push blockbusters. Here the opposite held. EASE and ItemKNN gave over 80% of their top-10 slots to the most-watched tenth of the catalogue, while SASRec gave 47% and reached 65% of all films. The re-ranker moved back slightly towards popular films (head share 53.7%, coverage 60.5%), a trade-off a product team would want to see before shipping.
 
 ::: {layout-ncol=2}
-![Accuracy against popularity concentration; labels show catalogue coverage.](figures/accuracy_vs_popularity.png){#fig-pop}
+![Accuracy against popularity concentration, with labels showing catalogue coverage.](figures/accuracy_vs_popularity.png){#fig-pop}
 
-![Validation NDCG\@10 during SASRec training, three seeds; dashed line is EASE. All three seeds early-stopped well before the 120-epoch cap.](figures/sasrec_training.png){#fig-train}
+![Validation NDCG\@10 during SASRec training for three seeds, with EASE as the dashed line. All three seeds early-stopped well before the 120-epoch cap.](figures/sasrec_training.png){#fig-train}
 :::
 
 {{< pagebreak >}}
 
 # Does tuning help?
 
-The re-ranker uses one fixed LightGBM recipe, so I tested whether a hyperparameter search improves it: Optuna's TPE sampler [@akiba2019] with 100 trials (seed 0, the fixed recipe enqueued as trial 0) over leaves, learning rate, minimum leaf size, feature and bagging fractions, L2 penalty and the tree cap. Because the ranker is trained on the validation films, they cannot also score its settings directly, and a time-based carve-out would mean retraining SASRec. Instead the validation-stage users were split once at random into 4,832 *fit* users, on which each trial trains, and 1,208 *tune* users, on which it is scored by NDCG\@10. Test targets are never read during the search; a unit test confirms that corrupting them leaves every trial unchanged. Both recipes were then retrained on all validation users and scored once on test for seeds 0--2 (SASRec and LightGBM seed alike). The search took 3.7 minutes and the whole study 6.6 minutes with 13 threads.
+The re-ranker uses one fixed LightGBM recipe, so I tested whether a hyperparameter search improves it. I ran Optuna's TPE sampler [@akiba2019] for 100 trials (seed 0, with the fixed recipe enqueued as trial 0) over leaves, learning rate, minimum leaf size, feature and bagging fractions, L2 penalty and the tree cap. Because the ranker is trained on the validation films, they cannot also score its settings directly, and a time-based carve-out would mean retraining SASRec. Instead the validation-stage users were split once at random into 4,832 *fit* users, on which each trial trains, and 1,208 *tune* users, on which it is scored by NDCG\@10. Test targets are never read during the search, and a unit test confirms that corrupting them leaves every trial unchanged. Both recipes were then retrained on all validation users and scored once on test for seeds 0--2 (SASRec and LightGBM seed alike). The search took 3.7 minutes and the whole study 6.6 minutes with 13 threads.
 
 | Recipe | Val. NDCG\@10 | Test, seed 0 | Seed 1 | Seed 2 | Test mean ± SD | HR\@10 mean |
 |-----------|-----------------|-----------------|---------|---------|---------------------|---------------|
 | Default | 0.1738 | 0.1751 | **0.1755** | 0.1746 | 0.1750 ± 0.0005 | 0.3039 |
 | Tuned | **0.1849** | **0.1761** | 0.1732 | **0.1773** | **0.1755** ± 0.0021 | **0.3040** |
 
-: Re-ranker NDCG\@10 with the fixed and the Optuna-tuned LightGBM recipe. Validation is the 1,208 tune users (mean of three LightGBM seeds), which also selected the tuned recipe, so its value there is optimistic; test covers 6,040 users. Bold marks the best (highest) value in each column. {#tbl-tuning}
+: Re-ranker NDCG\@10 with the fixed and the Optuna-tuned LightGBM recipe. Validation is the 1,208 tune users (mean of three LightGBM seeds), which also selected the tuned recipe, so its value there is optimistic. Test covers 6,040 users. Bold marks the best (highest) value in each column. {#tbl-tuning}
 
 *Tuning does not help on test.* The search lifted tune-user NDCG\@10 by about 0.011, but tuned minus default on test was +0.0010 (95% CI [−0.0019, +0.0039]) for seed 0, −0.0023 [−0.0058, +0.0015] for seed 1 and +0.0028 [+0.0000, +0.0057] for seed 2. On each user's seed-averaged NDCG\@10 it was +0.0005 [−0.0013, +0.0025], and the tuned recipe varied more across seeds. Retrained on all validation users, it early-stopped after only 3--21 trees, so the small early-stopping hold-out decides more of the final model than the searched settings do. The headline keeps the fixed recipe, and the re-ranker's +0.0085 gain over SASRec stands.
 
@@ -167,3 +171,8 @@ seqrec run-all --threads 2 --verbose    # writes docs/results/metrics.json + fig
 ```
 
 SASRec checkpoints are cached per seed and training config in `results/cache/`, so re-running the evaluation takes about two minutes on CPU.
+
+# References {.unnumbered}
+
+::: {#refs}
+:::
